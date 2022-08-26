@@ -18,7 +18,7 @@ from sklearn import metrics     # Used for importing various performance measure
 from json import dumps # needed for making a string out of a dictionary
 from itertools import repeat # Needed for repeating a variable multiple times
 
-
+import abc
 from abc import ABC, abstractmethod
 
 
@@ -102,15 +102,20 @@ class ML_model(ABC):
     def __init__(self, machine, model_params, show_fit = False):
         self.MACHINE = machine
         if machine == 'Snellius':
-            self.PRED_VAR_PATH = '/gpfs/work1/0/ctdas/awoude/Ritten/predictor_vars/'  # For retrieving the set of aggregated scaling vectors
+            # For retrieving the set of aggregated scaling vectors
+            self.PRED_VAR_PATH = '/gpfs/work1/0/ctdas/awoude/Ritten/predictor_vars/'
 
-            self.SAVE_DIR = self.pers_file_dir = '/gpfs/work1/0/ctdas/awoude/Ritten/trained_models/'  # used for storing the trained model
+            # used for storing the trained model
+            self.SAVE_DIR = self.pers_file_dir = '/gpfs/work1/0/ctdas/awoude/Ritten/trained_models/'
 
-            self.SF_DIR = '/gpfs/work1/0/ctdas/awoude/Ritten/fitted_sf/'  # used for storing the scaling factor produced bij ML models
+            # used for storing the scaling factor produced bij ML models
+            self.SF_DIR = '/gpfs/work1/0/ctdas/awoude/Ritten/fitted_sf/'
 
-            self.RESULTS_DIR = '/gpfs/work1/0/ctdas/awoude/Ritten/results/'  # used for storing the trained model
+            # used for storing the trained model
+            self.RESULTS_DIR = '/gpfs/work1/0/ctdas/awoude/Ritten/results/'
 
-            self.CPU_COUNT = 32  # Snellius allows for usage of ut to 32 threads on the same node without additional costs
+            # Snellius allows for usage of ut to 32 threads on the same node without additional costs
+            self.CPU_COUNT = 32
 
         elif machine == 'local':
             self.PRED_VAR_PATH = './'  # For retrieving the set of aggregated scaling vectors
@@ -121,7 +126,8 @@ class ML_model(ABC):
 
             self.RESULTS_DIR = './results/'
 
-            self.CPU_COUNT = multiprocessing.cpu_count() - 2  # The -2 is placed in order to maintain a relatively fast PC when running the model
+            # The -2 is placed in order to maintain a relatively fast PC when running the model
+            self.CPU_COUNT = multiprocessing.cpu_count() - 2
 
         else:
             raise NotImplementedError(f'machine "{machine}" has not been implemented')
@@ -173,8 +179,10 @@ class ML_model(ABC):
         """
             Method used for extracting the prediction of a model
             :param model: The trained model which is to make the prediction
-            :param data: Data needed for making the prediction. Should be an XArray.DataSet containing both target and predictor variables
-            :param test_or_train: Boolean value indicating whether the prediction should be on the training data or the testing data
+            :param data: Data needed for making the prediction. Should be an XArray.DataSet containing both
+            target and predictor variables
+            :param test_or_train: Boolean value indicating whether the prediction should be on the training data
+            or the testing data
             :return: timeseries of predicted SFs
             """
         raise NotImplementedError
@@ -292,8 +300,6 @@ class ML_model(ABC):
             if self.show_fit:
                 plot_fit(test_ds, test_prediction, test_ci, 'test')
 
-
-
             sf_data[(2017-year) - 1] = self.create_sf_dataset(np.concatenate([train_prediction, test_prediction]),
                                                               xr.concat([train_ds, test_ds], 'time'),
                                                               region)
@@ -326,7 +332,7 @@ class ML_model(ABC):
             }
 
             # Evaluate the model, both on training and testing data
-            print(f'Generating perforamce on training set - region: {region}, n_train_years: {n_train_years}')
+            print(f'Generating performance on training set - region: {region}, n_train_years: {n_train_years}')
             train_results = eval_model(train_data, 'train')
 
             print(f'Generating performance on test set - region: {region}, n_train_years: {n_train_years}')
@@ -348,13 +354,14 @@ class ML_model(ABC):
         with xr.open_dataset(self.PRED_VAR_PATH + data_file) as ds:
             complete_ds = ds
 
-        # the models will be evaluated per ecoregion. Hence, the original dataset is split into a separate one for each ecoregion
+        # the models will be evaluated per eco-region. Hence, the original dataset is split into a separate dataset
+        # for each eco-region
         eco_region_dat = list(complete_ds.groupby("eco_regions"))
 
         # Preload all data to prevent loading error during multithreading process
         eco_region_dat = [data.load(scheduler='sync') for _, data in eco_region_dat]
 
-        if self.MACHINE == 'local':  # reduce number of ecoregions in order to maintain speed within debugging process
+        if self.MACHINE == 'local':  # reduce number of eco-regions in order to maintain speed within debugging process
             eco_region_dat = eco_region_dat[:5]
 
         with Pool(self.CPU_COUNT) as pool:
@@ -373,13 +380,13 @@ class ML_model(ABC):
         return sf_ds
 
     def test_model(self, sf_data):
-        '''
-        Very similar to the run_model method, but instead of predicint the scaling factors, this method analyses
+        """
+        Very similar to the run_model method, but instead of predicting the scaling factors, this method analyses
         the result
         :param sf_data: The data which is to be analysed. The complete NetCDF4 file, with coordinates
         [eco_regions, n_train_years, time]
         :return: The performance of the predicted scaling factors using various measures
-        '''
+        """
         if sf_data is None:
             sf_data = self.sf_data
 
@@ -457,12 +464,11 @@ class ML_model(ABC):
         return file_dir
 
     def get_results_path(self, eco_region):
-        '''
+        """
         Function for automatically generating the full path to the analysed results
-        :param algorithm: The algorithm used for generating the results, sometimes also refered to as 'model_name'
         :param eco_region: The eco_region to which the results apply
         :return: The correct file path of the results.
-        '''
+        """
         file_dir = self.get_results_dir()
         file_name = self.get_file_name(eco_region, 'pkl')
         return file_dir + file_name
@@ -485,12 +491,12 @@ class ML_model(ABC):
             pkl.dump(model, f, protocol=5)
 
     def write_results(self, data, eco_region):
-        '''
+        """
         Used for writing results of the sub model into a pickled file
         :param data: The data that is to be pickled
-        :param file_path: The location at which the data should be stored
+        :param eco_region: Eco-region of the results which are to be stored
         :return: None
-        '''
+        """
         results_dir = self.get_results_dir()
         if not os.path.isdir(results_dir):
             os.makedirs(results_dir)
@@ -499,12 +505,12 @@ class ML_model(ABC):
         data.to_pickle(file_path, protocol=5)
 
     def write_sf(self, data, eco_region):
-        '''
+        """
         Used for writing results of the sub model into a pickled file
         :param data: The data that is to be pickled
-        :param file_path: The location at which the data should be stored
+        :param eco_region: Eco-region of the results which are to be stored
         :return: None
-        '''
+        """
         sf_dir = self.get_sf_dir()
         if not os.path.isdir(sf_dir):
             os.makedirs(sf_dir)
@@ -512,53 +518,58 @@ class ML_model(ABC):
         print(f'writing intermediate results for region {eco_region}')
         data.to_netcdf(file_path)
 
+
 class SARIMA_model(ML_model):
     MODEL_NAME = 'SARIMA'
 
     def __init__(self, order, seasonal_order, trend, machine = 'local'):
-        '''
+        """
 
         :param order: Defining the regular AR, I and MA dependencies
         :param seasonal_order: Defining the seasonal dependencies
         :param trend: Pass 'c' to add an intercept term
         :param machine: Machine upon which the code is run. Can either be 'local' or 'Snellius'
-        '''
+        """
         super(SARIMA_model, self).__init__(machine,
                                            {'order':order,
                                             'seaonal_order':seasonal_order,
                                             'trend':trend},)
 
     def read_model(self, file_path, train_dat):
-        '''
+        """
         Method for reading previously trained models from a save-file
         :param file_path: Path to where the file can be found
         :param train_dat: Data used to train the model. Is needed for some algorithms to initialize the model
         :return: The trained model
-        '''
+        """
         with open(file_path, 'rb') as f:
             model = pkl.load(f)
 
-        # In earlier version of the model, the saved objects contained too much redundant data. Some remnants may remain of these large pickled objects.
+        # In earlier version of the model, the saved objects contained too much redundant data.
+        # Some remnants may remain of these large pickled objects.
         if isinstance(model, sm_tsa.statespace.sarimax.SARIMAXResultsWrapper):
             trained_model = model
             with open(file_path, "wb") as f:
                 pkl.dump(model.params, f, protocol=5)
-        elif isinstance(model, np.ndarray): # The newly pickled objects should only contain a single numpy array with the parameters for each term in the SARIMA model
+
+        # The newly pickled objects should only contain a single numpy array with the
+        # parameters for each term in the SARIMA model
+        elif isinstance(model, np.ndarray):
             target_dat = train_dat.sf_per_eco.values
             trained_model = sm.tsa.SARIMAX(target_dat, **self.MODEL_PARAMS)
             trained_model = trained_model.filter(model)
         else:
-            raise NotImplementedError(f'Unkown file type: {type(model)} encountered when loading model')
+            raise NotImplementedError(f'Unknown file type: {type(model)} encountered when loading model')
         print(f"finished loading model {file_path}")
         return trained_model
 
     def train_model(self, train_dat):
-        '''
+        """
         If no previously trained model is available, or if the available save file is corrupted, a new model needs to be
         trained.
         :param train_dat: Data needed for training the model
         :return: A trained model
-        '''
+        """
         start_year = str(train_dat.time.dt.year.min().values)
         eco_region = float(train_dat.eco_regions.values)
 
@@ -569,22 +580,21 @@ class SARIMA_model(ML_model):
                                           **self.MODEL_PARAMS
                                           )
         fitted_model = model.fit(maxiter=100, disp=0)  # method='cg'
-        #     eco_region = str(train_dat.eco_regions.values)
 
         # Save model for future usage
         self.write_model(fitted_model, start_year, eco_region)
         return fitted_model
 
-
     def get_prediction(self, model, data, test_or_train):
-        '''
+        """
         Method used for extracting the prediction of a model
         :param model: The trained model which is to make the prediction
-        :param data: Data needed for making the prediction. Should be an XArray.DataSet containing both target and predictor variables
+        :param data: Data needed for making the prediction. Should be an XArray.DataSet containing both target
+        and predictor variables
         :param test_or_train: The functionality of the method is slightly changed depending on whether the prediction is
          on testing or training data
         :return: timeseries of predicted SFs
-        '''
+        """
         if test_or_train == 'test':
             start_index = len(model.fittedvalues)
             final_model = model.append(data.sf_per_eco.values)
@@ -598,7 +608,7 @@ class SARIMA_model(ML_model):
         pred_dat = prediction.predicted_mean
 
         return pred_dat, pred_ci
-import abc
+
 
 
 
