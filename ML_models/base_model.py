@@ -11,7 +11,7 @@ import xarray as xr
 
 import os
 
-import statsmodels.api as sm  # Used for bot he SARIMA and SARIMAX models
+import statsmodels.api as sm  # Used for both SARIMA and SARIMAX models
 import statsmodels.tsa as sm_tsa  # Used for type checking SARIMA models
 from sklearn import metrics     # Used for importing various performance measures
 
@@ -21,8 +21,45 @@ from itertools import repeat # Needed for repeating a variable multiple times
 import abc
 from abc import ABC, abstractmethod
 
+# Due to the way the scaling factors are determined, factors associated with a flux near 0 can get massive scaling
+# factors. See Thesis section (??) for more in depth explanation
+def cap_outliers(dat, scalar = 4):
+    mean = np.mean(dat.values.flatten())
+    sd = np.std(dat.values.flatten())
 
-def eval_model(sf_data, test_or_train):
+    dat = dat.where(dat < (mean+sd*scalar), (mean+sd*scalar))
+    dat = dat.where(dat > (mean-sd*scalar), (mean-sd*scalar))
+    return dat
+
+def to_tc_region(sf_data):
+    """
+    Aggregate the dataset from eco_region level to transCom level
+    :param sf_data: Xarray dataset with ecoregions
+    :return: Xarray dataset with transCom regions
+    """
+    tc_flux_data = sf_data[['optimized_flux', 'predicted_flux', 'prior_flux_per_s',
+                            'eco_area', 'testing_time', 'training_time', 'tc_region']].groupby('tc_region').sum()
+
+    # Determine the optimized scaling factor of the transCom region
+    opt_sf = tc_flux_data.optimized_flux / tc_flux_data.prior_flux_per_s
+    tc_flux_data['sf_per_tc'] = cap_outliers(opt_sf)  # Deal with exploding scaling factors
+    pred_sf_list = [None] * len(sf_data.n_train_years.values)  # Initialize a list with correct number of entries
+
+    # Aggregate the ecoregions separately for each training data split
+    for n_years in tc_flux_data.n_train_years.values:
+        year_data = tc_flux_data.loc[dict(n_train_years = n_years)]  # select the right training data split
+        year_data_train = year_data.where(year_data.training_time.notnull(), drop=True)
+        year_data_test = year_data.where(year_data.testing_time.notnull(), drop=True)
+        year_data_combined = xr.merge([year_data_train, year_data_test])  # combine the training and testing data
+
+        # calculate the effective scaling factor
+        eff_sf = year_data_combined.predicted_flux / year_data_combined.prior_flux_per_s
+        pred_sf_list[n_years-1] = cap_outliers(eff_sf)
+
+    tc_flux_data['predicted_sf'] = xr.concat(pred_sf_list, 'n_train_years').transpose('tc_region', 'n_train_years', 'time')
+    return tc_flux_data
+
+def eval_model(sf_data, test_or_train, target_var):
     """
         Evaluate the model using the provided testing data
         :param sf_data: XArray dataset containing predicted scaling factors, analysed scaling factors and
@@ -31,14 +68,11 @@ def eval_model(sf_data, test_or_train):
         :return: A dictionary with the results according to various performance measures.
         """
 
-    print(sf_data)
+    # print(sf_data)
     pred_dat = sf_data.predicted_sf.values
     flux_dat = sf_data.prior_flux_per_s.values
-    true_dat = sf_data.sf_per_eco.values
-    #
-    # print(len(pred_dat))
-    # print(len(flux_dat))
-    # print(len(true_dat))
+    true_dat = sf_data[target_var].values
+
     # Make sure all provided datasets heve the same length
     assert (len(true_dat) == len(pred_dat)) and (len(true_dat) == len(flux_dat)), \
         'Passed datasets are do not have the same length: '
@@ -46,7 +80,7 @@ def eval_model(sf_data, test_or_train):
     # Determine the performance in scaling factor space
     sf_ME = (np.sum(true_dat) - np.sum(pred_dat)) / len(true_dat)
     sf_MAE = metrics.mean_absolute_error(true_dat, pred_dat)
-    sf_MAPE = metrics.mean_absolute_percentage_error(true_dat, pred_dat)
+    sf_MAPE = metrics.mean_absolute_percentage_error(true_dat, pred_dat) * 100
     sf_RMSE = np.sqrt(metrics.mean_squared_error(true_dat, pred_dat))
     sf_r2 = metrics.r2_score(true_dat, pred_dat)
 
@@ -55,9 +89,9 @@ def eval_model(sf_data, test_or_train):
     pred_flux = pred_dat * flux_dat
 
     # Determine the performance in flux space
-    flux_ME = (np.sum(true_dat) - np.sum(pred_flux)) / len(true_dat)
+    flux_ME = (np.sum(true_flux) - np.sum(pred_flux)) / len(true_flux)
     flux_MAE = metrics.mean_absolute_error(true_flux, pred_flux)
-    flux_MAPE = metrics.mean_absolute_percentage_error(true_flux, pred_flux)
+    flux_MAPE = metrics.mean_absolute_percentage_error(true_flux, pred_flux) * 100
     flux_RMSE = np.sqrt(metrics.mean_squared_error(true_flux, pred_flux))
     flux_r2 = metrics.r2_score(true_flux, pred_flux)
     return {'sf_ME_' + test_or_train: sf_ME,
@@ -77,15 +111,19 @@ def plot_fit(target_dat, pred_dat, pred_ci, test_or_train):
     fig, ax = plt.subplots(figsize=(9, 4))
     title = test_or_train + ' data: predicted sf of eco_region ' + str(target_dat.eco_regions.values)
     ax.set(title=title, xlabel='Date', ylabel='Scaling factor')
-
+    region = str(target_dat.eco_regions.values)
     # Plot data points
     target_dat.plot.scatter(x='time', y='sf_per_eco', ax=ax, label='Observed', c='C00')
+    h, l = ax.get_legend_handles_labels()
     # Plot predictions
-    plt.plot(target_dat.time.values, pred_dat, label='One-step-ahead forecast', c='C01')
+    line = ax.plot(target_dat.time.values, pred_dat, c='C01')
     ci = pred_ci
     ax.fill_between(target_dat.time.values, ci[:, 0], ci[:, 1], color='C01', alpha=0.1)
+    fill = ax.fill(np.NaN, np.NaN, color='C01', alpha=0.1)
 
-    legend = ax.legend(loc='lower right')
+    plt.title(f'Performance on {test_or_train} data of eco-region {region}')
+
+    legend = ax.legend([(line[0], fill[0]), h[0]], ['Forecast with uncertainty', l[0]], loc='lower right')
 
     plt.show()
 
@@ -120,14 +158,14 @@ class ML_model(ABC):
         elif machine == 'local':
             self.PRED_VAR_PATH = './'  # For retrieving the set of aggregated scaling vectors
 
-            self.SAVE_DIR = self.pers_file_dir = './models/'  # used for storing the trained model
+            self.SAVE_DIR = self.pers_file_dir = './trained_models_download/' #'./models/'  # used for storing the trained model
 
             self.SF_DIR = './fitted_sf/'  # used for storing the scaling factor produced bij ML models
 
             self.RESULTS_DIR = './results/'
 
             # The -2 is placed in order to maintain a relatively fast PC when running the model
-            self.CPU_COUNT = multiprocessing.cpu_count() - 2
+            self.CPU_COUNT = int(multiprocessing.cpu_count() / 2)
 
         else:
             raise NotImplementedError(f'machine "{machine}" has not been implemented')
@@ -265,65 +303,75 @@ class ML_model(ABC):
     def pred_eco_region(self, eco_data):
         region = float(eco_data.eco_regions.values)
 
-        sf_data = [None] * 17
+        print(f'Determining sf prediction of region {region}')
+        try:
+            sf_ds = self.load_sf_data(region)
+        except (EOFError, FileNotFoundError):
+            print(f'No sf data exists on region {region}. Making new sf prediction')
+            sf_data = [None] * 17
 
-        # Set aside the testing data. Using the classical 80%-20% split
-        test_ds = eco_data.loc[dict(time=slice("2017", "2020"))]
-        region_dat = eco_data.loc[dict(time=slice("2000", "2016"))]
-        for year in range(2000, 2017):
-            # Load the model if it has been trained already
-            file_name = self.get_model_path(str(year), region)
+            # Set aside the testing data. Using the classical 80%-20% split
+            test_ds = eco_data.loc[dict(time=slice("2017", "2020"))]
+            region_dat = eco_data.loc[dict(time=slice("2000", "2016"))]
+            for year in range(2000, 2017):
+                # Load the model if it has been trained already
+                file_name = self.get_model_path(str(year), region)
 
-            # Determine training data and train model
-            train_ds = region_dat.loc[dict(time=slice(str(year), "2016"))]
+                # Determine training data and train model
+                train_ds = region_dat.loc[dict(time=slice(str(year), "2016"))]
 
-            try:
-                trained_model = self.read_model(file_name, train_ds)
-                print(f'file "{file_name}" has already contains a trained model. Skipping training process')
-            except pkl.UnpicklingError:
-                print(f'Could no unpickle model from eco-region {region} and starting year {year}. Training new model')
-                # Pickled model somehow got corrupted. Train a new model
-                trained_model = self.train_model(train_ds)
-            except (EOFError, FileNotFoundError):
-                print(f'No file exists, or the the existing file is empty. Training new model')
-                # If no model exists, train a new one
-                trained_model = self.train_model(train_ds)
+                try:
+                    trained_model = self.read_model(file_name, train_ds)
+                    # print(f'file "{file_name}" already contains a trained model. Skipping training process')
+                except pkl.UnpicklingError:
+                    print(f'Could no unpickle model from eco-region {region} and starting year {year}. Training new model')
+                    # Pickled model somehow got corrupted. Train a new model
+                    trained_model = self.train_model(train_ds)
+                except (EOFError, FileNotFoundError):
+                    print(f'No file exists, or the existing file is empty. Training new model')
+                    # If no model exists, train a new one
+                    trained_model = self.train_model(train_ds)
+                except ValueError as ve:
+                    print(ve)
+                    print(f'The loaded file contained an incompatible model. Training a new model')
+                    trained_model = self.train_model(train_ds)
 
-            # Generate predictions on both training set and testing set
-            train_prediction, train_ci = self.get_prediction(trained_model, train_ds, 'train')
+                # Generate predictions on both training set and testing set
+                train_prediction, train_ci = self.get_prediction(trained_model, train_ds, 'train')
 
-            if self.show_fit:
-                plot_fit(train_ds, train_prediction, train_ci, 'train')
+                if self.show_fit:
+                    plot_fit(train_ds, train_prediction, train_ci, 'train')
 
-            test_prediction, test_ci = self.get_prediction(trained_model, test_ds, 'test')
+                test_prediction, test_ci = self.get_prediction(trained_model, test_ds, 'test')
 
-            if self.show_fit:
-                plot_fit(test_ds, test_prediction, test_ci, 'test')
+                if self.show_fit:
+                    plot_fit(test_ds, test_prediction, test_ci, 'test')
 
-            sf_data[(2017-year) - 1] = self.create_sf_dataset(np.concatenate([train_prediction, test_prediction]),
-                                                              xr.concat([train_ds, test_ds], 'time'),
-                                                              region)
-        sf_ds = xr.concat(sf_data, 'n_train_years', data_vars='minimal', compat='no_conflicts')
-        self.write_sf(sf_ds, region)
+                sf_data[(2017-year) - 1] = self.create_sf_dataset(np.concatenate([train_prediction, test_prediction]),
+                                                                  xr.concat([train_ds, test_ds], 'time'),
+                                                                  region)
+            sf_ds = xr.concat(sf_data, 'n_train_years', data_vars='minimal', compat='no_conflicts')
+            self.write_sf(sf_ds, region)
         return sf_ds
 
-    def analyse_sf_data(self, sf_data):
-        region = float(sf_data.eco_regions.values)
+    def analyse_sf_data(self, sf_data, per_tc_region = False):
+        if per_tc_region:
+            region = float(sf_data.tc_region.values)
+        else:
+            region = float(sf_data.eco_regions.values)
 
         grouped_sf_data = sf_data.groupby('n_train_years')
         results_df = pd.DataFrame()
         for n_train_years, sf_data_per_year in grouped_sf_data:
 
             # Extract the first year used for testing
-            test_data = sf_data_per_year.where(sf_data_per_year.testing_time.notnull() , drop=True)
-
+            test_data = sf_data_per_year.where(sf_data_per_year.testing_time.notnull(), drop=True)
             first_testing_year = pd.DatetimeIndex(test_data.time).year.min()
 
             # Determine training data and train model
             train_data = sf_data_per_year.where(sf_data_per_year.training_time.notnull(), drop=True)
 
             model_params = {
-                'eco_region': region,
                 'start_year': first_testing_year-n_train_years,
                 'N_train_years': n_train_years,
                 'N_train_obs': len(train_data.time),
@@ -331,12 +379,19 @@ class ML_model(ABC):
                 'N_test_obs': len(test_data.time)
             }
 
+            if per_tc_region:
+                model_params['tc_region'] = region
+                target_var = 'sf_per_tc'
+            else:
+                model_params['eco_region'] = region
+                target_var = 'sf_per_eco'
+
             # Evaluate the model, both on training and testing data
             print(f'Generating performance on training set - region: {region}, n_train_years: {n_train_years}')
-            train_results = eval_model(train_data, 'train')
+            train_results = eval_model(train_data, 'train', target_var=target_var)
 
             print(f'Generating performance on test set - region: {region}, n_train_years: {n_train_years}')
-            test_results = eval_model(test_data, 'test')
+            test_results = eval_model(test_data, 'test', target_var=target_var)
 
             # unpack all dicts to form single results dict
             model_results = pd.DataFrame({**model_params, **train_results, **test_results}, index=[region])
@@ -345,10 +400,10 @@ class ML_model(ABC):
             else:
                 results_df = model_results
 
-        self.write_results(results_df, region)
+        self.write_results(results_df, region, per_tc_region)
         return results_df
 
-    def run_model(self, data_file):
+    def run_model(self, data_file, debug=False):
 
         # Loading all necessary data
         with xr.open_dataset(self.PRED_VAR_PATH + data_file) as ds:
@@ -361,11 +416,18 @@ class ML_model(ABC):
         # Preload all data to prevent loading error during multithreading process
         eco_region_dat = [data.load(scheduler='sync') for _, data in eco_region_dat]
 
-        if self.MACHINE == 'local':  # reduce number of eco-regions in order to maintain speed within debugging process
-            eco_region_dat = eco_region_dat[:5]
+        if debug:
+            eco_region_dat = eco_region_dat[:6]
+        # if self.MACHINE == 'local':  # reduce number of eco-regions in order to maintain speed within debugging process
+        #     eco_region_dat = eco_region_dat
 
         with Pool(self.CPU_COUNT) as pool:
-            sf_list = pool.map(self.pred_eco_region, eco_region_dat)
+            results = pool.map_async(self.pred_eco_region, eco_region_dat)
+            try:
+                sf_list = results.get(timeout=2400)
+            except TimeoutError as e:
+                print(f'Session stopped due to timeout: {e}')
+
 
         sf_ds = xr.concat(sf_list, 'eco_regions', data_vars='minimal')
         corrected_train_time = sf_ds.training_time.isel(dict(eco_regions=1)).squeeze()
@@ -374,12 +436,12 @@ class ML_model(ABC):
         self.sf_data = sf_ds
 
         # Saving the scaling factor results
-        sf_file = self.SF_DIR + 'SARIMA_sf.nc'
+        sf_file = self.SF_DIR + self.get_model_name() + '_sf.nc'
         sf_ds.to_netcdf(sf_file)
 
         return sf_ds
 
-    def test_model(self, sf_data):
+    def test_model(self, sf_data, per_tc_region = False):
         """
         Very similar to the run_model method, but instead of predicting the scaling factors, this method analyses
         the result
@@ -390,18 +452,27 @@ class ML_model(ABC):
         if sf_data is None:
             sf_data = self.sf_data
 
-        eco_region_sf_dat = list(sf_data.groupby("eco_regions"))
-        eco_region_sf_dat = [data.load(scheduler='sync') for _, data in eco_region_sf_dat]
+        if per_tc_region:
+            sf_data = to_tc_region(sf_data)
+            region_sf_dat = list(sf_data.groupby("tc_region"))
+        else:
+            region_sf_dat = list(sf_data.groupby("eco_regions"))
+
+        region_sf_dat = [data.load(scheduler='sync') for _, data in region_sf_dat]
 
         with Pool(self.CPU_COUNT) as pool:
-            res_list = pool.map(self.analyse_sf_data, eco_region_sf_dat)
+            res_list = pool.starmap(self.analyse_sf_data, zip(region_sf_dat, repeat(per_tc_region)))
 
         # Reformatting the results object
         results_df = pd.concat(res_list)
         self.results = results_df
 
         # Saving the results file
-        results_file = self.RESULTS_DIR + 'SARIMA_results.pkl'
+        if per_tc_region:
+            results_file = self.RESULTS_DIR + self.get_model_name() + '_results_per_tc.pkl'
+        else:
+            results_file = self.RESULTS_DIR + self.get_model_name() + '_results.pkl'
+
         results_df.to_pickle(results_file)
 
         return results_df
@@ -416,17 +487,21 @@ class ML_model(ABC):
         file_dir = self.SAVE_DIR + self.get_model_name() + '/' + start_year + '/'
         return file_dir
 
-    def get_file_name(self, eco_region, extention):
+    def get_file_name(self, eco_region, extension, per_tc_region=False):
         """
         Function used for generating the file name of a model
         :param eco_region: The eco_region to which the model applies
-        :param extention: The file extention given to the file name
+        :param extension: The file extension given to the file name
+        :param per_tc_region: Flag on whether the file is based on a tc_region
         :return: file name of the (to be) saved model or results file
         """
-        file_name = self.get_model_name() + '_' + str(eco_region) + '.' + extention
+        if per_tc_region:
+            file_name = 'tc_' + self.get_model_name() + '_' + str(eco_region) + '.' + extension
+        else:
+            file_name = self.get_model_name() + '_' + str(eco_region) + '.' + extension
         return file_name
 
-    def get_model_path(self, start_year, eco_region):
+    def get_model_path(self, start_year, eco_region, save_type='pkl'):
         """
         Function for automatically generating the location of a saved model
         :param start_year: The year at which the training data started
@@ -434,7 +509,7 @@ class ML_model(ABC):
         :return: The correct file path of the model.
         """
         file_dir = self.get_model_dir(start_year)
-        file_name = self.get_file_name(eco_region, 'pkl')
+        file_name = self.get_file_name(eco_region, save_type)
         return file_dir + file_name
 
     def get_sf_dir(self):
@@ -463,19 +538,21 @@ class ML_model(ABC):
         file_dir = self.RESULTS_DIR + self.get_model_name() + '/'
         return file_dir
 
-    def get_results_path(self, eco_region):
+    def get_results_path(self, eco_region, per_tc_region = False):
         """
         Function for automatically generating the full path to the analysed results
         :param eco_region: The eco_region to which the results apply
+        :param per_tc_region: Indication on whether the results are based on TransCom regions
         :return: The correct file path of the results.
         """
         file_dir = self.get_results_dir()
-        file_name = self.get_file_name(eco_region, 'pkl')
+        file_name = self.get_file_name(eco_region, 'pkl', per_tc_region)
         return file_dir + file_name
 
     def write_model(self, model, start_year, eco_region):
         """
-        Function used to save a model in the correct directory with an identifiable name. Uses Pickle for saving the model object
+        Function used to save a model in the correct directory with an identifiable name. Uses Pickle for saving
+        the model object
         :param model: The model which is to be saved
         :param start_year: The date at which the training data starts
         :param eco_region: The name of the eco_region to which the model applies
@@ -485,24 +562,26 @@ class ML_model(ABC):
         file_dir = self.get_model_dir(start_year)
         if not os.path.isdir(file_dir):
             os.makedirs(file_dir)
+
         file_name = self.get_file_name(eco_region, 'pkl')
         file = file_dir + file_name
         with open(file, "wb") as f:
             pkl.dump(model, f, protocol=5)
 
-    def write_results(self, data, eco_region):
+    def write_results(self, data, region, per_tc_region):
         """
         Used for writing results of the sub model into a pickled file
         :param data: The data that is to be pickled
-        :param eco_region: Eco-region of the results which are to be stored
+        :param region: Region of the results which are to be stored. Can either be an eco-region or a TransCom region
         :return: None
         """
         results_dir = self.get_results_dir()
         if not os.path.isdir(results_dir):
             os.makedirs(results_dir)
-        file_path = self.get_results_path(eco_region)
-        print(f'writing intermediate results for region {eco_region}')
+        file_path = self.get_results_path(region, per_tc_region)
+        print(f'writing intermediate results for region {region}')
         data.to_pickle(file_path, protocol=5)
+        # print(f'finished writing results region')
 
     def write_sf(self, data, eco_region):
         """
@@ -517,129 +596,13 @@ class ML_model(ABC):
         file_path = self.get_sf_path(eco_region)
         print(f'writing intermediate results for region {eco_region}')
         data.to_netcdf(file_path)
+        print(f'Finished writing results for region {eco_region}')
 
+    def load_sf_data(self, region):
+        sf_file = self.get_sf_path(region)
 
-class SARIMA_model(ML_model):
-    MODEL_NAME = 'SARIMA'
-
-    def __init__(self, order, seasonal_order, trend, machine = 'local'):
-        """
-
-        :param order: Defining the regular AR, I and MA dependencies
-        :param seasonal_order: Defining the seasonal dependencies
-        :param trend: Pass 'c' to add an intercept term
-        :param machine: Machine upon which the code is run. Can either be 'local' or 'Snellius'
-        """
-        super(SARIMA_model, self).__init__(machine,
-                                           {'order':order,
-                                            'seaonal_order':seasonal_order,
-                                            'trend':trend},)
-
-    def read_model(self, file_path, train_dat):
-        """
-        Method for reading previously trained models from a save-file
-        :param file_path: Path to where the file can be found
-        :param train_dat: Data used to train the model. Is needed for some algorithms to initialize the model
-        :return: The trained model
-        """
-        with open(file_path, 'rb') as f:
-            model = pkl.load(f)
-
-        # In earlier version of the model, the saved objects contained too much redundant data.
-        # Some remnants may remain of these large pickled objects.
-        if isinstance(model, sm_tsa.statespace.sarimax.SARIMAXResultsWrapper):
-            trained_model = model
-            with open(file_path, "wb") as f:
-                pkl.dump(model.params, f, protocol=5)
-
-        # The newly pickled objects should only contain a single numpy array with the
-        # parameters for each term in the SARIMA model
-        elif isinstance(model, np.ndarray):
-            target_dat = train_dat.sf_per_eco.values
-            trained_model = sm.tsa.SARIMAX(target_dat, **self.MODEL_PARAMS)
-            trained_model = trained_model.filter(model)
-        else:
-            raise NotImplementedError(f'Unknown file type: {type(model)} encountered when loading model')
-        print(f"finished loading model {file_path}")
-        return trained_model
-
-    def train_model(self, train_dat):
-        """
-        If no previously trained model is available, or if the available save file is corrupted, a new model needs to be
-        trained.
-        :param train_dat: Data needed for training the model
-        :return: A trained model
-        """
-        start_year = str(train_dat.time.dt.year.min().values)
-        eco_region = float(train_dat.eco_regions.values)
-
-        print(f"starting training process of SARIMA model, at eco-region {eco_region} using data starting at {start_year}")
-
-        target_data = train_dat.sf_per_eco
-        model = sm.tsa.statespace.SARIMAX(target_data.values,
-                                          **self.MODEL_PARAMS
-                                          )
-        fitted_model = model.fit(maxiter=100, disp=0)  # method='cg'
-
-        # Save model for future usage
-        self.write_model(fitted_model, start_year, eco_region)
-        return fitted_model
-
-    def get_prediction(self, model, data, test_or_train):
-        """
-        Method used for extracting the prediction of a model
-        :param model: The trained model which is to make the prediction
-        :param data: Data needed for making the prediction. Should be an XArray.DataSet containing both target
-        and predictor variables
-        :param test_or_train: The functionality of the method is slightly changed depending on whether the prediction is
-         on testing or training data
-        :return: timeseries of predicted SFs
-        """
-        if test_or_train == 'test':
-            start_index = len(model.fittedvalues)
-            final_model = model.append(data.sf_per_eco.values)
-        elif test_or_train == 'train':
-            start_index = 0
-            final_model = model
-        else:
-            raise Exception(f'test_or_train not specified:{test_or_train}')
-        prediction = final_model.get_prediction(start=start_index)
-        pred_ci = prediction.conf_int()
-        pred_dat = prediction.predicted_mean
-
-        return pred_dat, pred_ci
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        with xr.open_dataset(sf_file) as loaded_ds:
+            sf_ds = loaded_ds
+        return sf_ds
 
 
