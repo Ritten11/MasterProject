@@ -2,7 +2,24 @@ import multiprocessing
 from multiprocessing import Pool
 
 import matplotlib.pyplot as plt
+# plt.rcParams['text.usetex'] = True
+
+#
 import matplotlib as mpl
+
+# mpl.rcParams.update(mpl.rcParamsDefault)
+# mpl.rc('font', family='sans-serif')
+# mpl.rc('font', serif='Helvetica Neue')
+# mpl.rc('text', usetex='false')
+# plt.rcParams['mathtext.fontset'] = 'custom'
+# plt.rcParams['mathtext.rm'] = 'Bitstream Vera Sans'
+# plt.rcParams['mathtext.it'] = 'Bitstream Vera Sans:italic'
+# plt.rcParams['mathtext.bf'] = 'Bitstream Vera Sans:bold'
+
+# rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
+import matplotlib as mpl
+# from matplotlib import rc
+# rc('text', usetex=True)
 
 import numpy as np
 import pandas as pd
@@ -20,6 +37,53 @@ from itertools import repeat # Needed for repeating a variable multiple times
 
 import abc
 from abc import ABC, abstractmethod
+
+# Function to translate ecoregion number to PFT and TC-region
+def translate_to_PFT(ecoregion):
+    ecoregion = int(float(ecoregion))
+    PFT_order = {
+        1: 'Conifer \; Forest',
+        2: 'Broadleaf \; Forest',
+        3: 'Mixed \; Forest',
+        4: 'Grass/Shrub',
+        5: 'Tropical \; Forest',
+        6: 'Scrub/Woods',
+        7: 'Semitundra',
+        8: 'Fields/Woods/Savanna',
+        9: 'Northern \; Taiga',
+        10: 'Forest/Field',
+        11: 'Wetland',
+        12: 'Deserts',
+        13: 'Shrub/Tree/Suc',
+        14: 'Crops',
+        15: 'Conifer \; Snowy/Coastal',
+        16: 'Wooded \; tundra',
+        17: 'Mangrove',
+        18: 'Ice \; and \; Polar desert',
+        19: 'Water'
+    }
+
+    tc_order = {
+        1: "North \; American \; Boreal",
+        2: "North \; American \; Temperate",
+        3: "South \; American \; Tropical",
+        4: "South \; American \; Temperate",
+        5: "Northern \; Africa",
+        6: "Southern \; Africa",
+        7: "Eurasia \; Boreal",
+        8: "Eurasia \; Temperate",
+        9: "Tropical \; Asia",
+        10: "Australia",
+        11: "Europe",
+    }
+
+    tc_region  = int((ecoregion-1)/19 + 1)
+    tc_name = tc_order[tc_region]
+    if ecoregion > 11*19:
+        return tc_name
+    else:
+        PFT = PFT_order[(ecoregion-1)%19+1]
+        return tc_name + ' - ' + PFT
 
 # Due to the way the scaling factors are determined, factors associated with a flux near 0 can get massive scaling
 # factors. See Thesis section (??) for more in depth explanation
@@ -106,25 +170,37 @@ def eval_model(sf_data, test_or_train, target_var):
             'flux_r2_' + test_or_train: flux_r2}
 
 
-def plot_fit(target_dat, pred_dat, pred_ci, test_or_train):
+def plot_fit(target_dat, pred_dat, pred_ci, test_or_train, show_pred=True, show_test=True):
     # Graph
     fig, ax = plt.subplots(figsize=(9, 4))
-    title = test_or_train + ' data: predicted sf of eco_region ' + str(target_dat.eco_regions.values)
-    ax.set(title=title, xlabel='Date', ylabel='Scaling factor')
     region = str(target_dat.eco_regions.values)
     # Plot data points
-    target_dat.plot.scatter(x='time', y='sf_per_eco', ax=ax, label='Observed', c='C00')
-    h, l = ax.get_legend_handles_labels()
+    if show_test:
+        target_dat.plot.scatter(x='time', y='sf_per_eco', ax=ax, c='C00', label=r'$\lambda_{}$'.format('{' + str(region) + '}'))#, label=r'Aggregated $\lambda$')
+        h, l = ax.get_legend_handles_labels()
+
+
     # Plot predictions
-    line = ax.plot(target_dat.time.values, pred_dat, c='C01')
-    ci = pred_ci
-    ax.fill_between(target_dat.time.values, ci[:, 0], ci[:, 1], color='C01', alpha=0.1)
-    fill = ax.fill(np.NaN, np.NaN, color='C01', alpha=0.1)
+    if show_pred:
+        line = ax.plot(target_dat.time.values, pred_dat, c='C01')
+        ci = pred_ci
+        ax.fill_between(target_dat.time.values, ci[:, 0], ci[:, 1], color='C01', alpha=0.1)
+        fill = ax.fill(np.NaN, np.NaN, color='C01', alpha=0.1)
 
-    plt.title(f'Performance on {test_or_train} data of eco-region {region}')
+    # title = test_or_train + ' data: predicted sf of eco_region ' + target_dat.eco_regions.values)
+    ax.set(xlabel='Date', ylabel='Scaling factor')
+    plt.ylim([-2, 5])
+    plt.title(f"Performance on {test_or_train} data \n region {region}: " + r'$' + translate_to_PFT(region)+'$')
 
-    legend = ax.legend([(line[0], fill[0]), h[0]], ['Forecast with uncertainty', l[0]], loc='lower right')
-
+    if (show_test and show_pred):
+        legend = ax.legend([(line[0], fill[0]), h[0]], [r'Forecast with uncertainty ($\sigma=1$)', l[0]], loc='lower right')
+    elif show_pred:
+        legend = ax.legend([(line[0], fill[0])], [r'Forecast with uncertainty ($\sigma=1$)'], loc='lower right')
+    elif show_test:
+        plt.legend(loc='lower right')
+    else:
+        print('Make up your mind. You need to plot something.... If you do not wat a plot, just set "show_fit" to false.')
+        raise RuntimeError('You stupid')
     plt.show()
 
 
@@ -158,14 +234,14 @@ class ML_model(ABC):
         elif machine == 'local':
             self.PRED_VAR_PATH = './'  # For retrieving the set of aggregated scaling vectors
 
-            self.SAVE_DIR = self.pers_file_dir = './trained_models_download/' #'./models/'  # used for storing the trained model
+            self.SAVE_DIR = self.pers_file_dir = './trained_models/'  # used for storing the trained model
 
             self.SF_DIR = './fitted_sf/'  # used for storing the scaling factor produced bij ML models
 
             self.RESULTS_DIR = './results/'
 
             # The -2 is placed in order to maintain a relatively fast PC when running the model
-            self.CPU_COUNT = int(multiprocessing.cpu_count() / 2)
+            self.CPU_COUNT = int(multiprocessing.cpu_count() / 3)
 
         else:
             raise NotImplementedError(f'machine "{machine}" has not been implemented')
@@ -339,13 +415,13 @@ class ML_model(ABC):
                 # Generate predictions on both training set and testing set
                 train_prediction, train_ci = self.get_prediction(trained_model, train_ds, 'train')
 
-                if self.show_fit:
-                    plot_fit(train_ds, train_prediction, train_ci, 'train')
+                # if self.show_fit:
+                #     plot_fit(train_ds, train_prediction, train_ci, 'train')
 
                 test_prediction, test_ci = self.get_prediction(trained_model, test_ds, 'test')
 
                 if self.show_fit:
-                    plot_fit(test_ds, test_prediction, test_ci, 'test')
+                    plot_fit(test_ds, test_prediction, test_ci, 'test', show_test=True, show_pred=True)
 
                 sf_data[(2017-year) - 1] = self.create_sf_dataset(np.concatenate([train_prediction, test_prediction]),
                                                                   xr.concat([train_ds, test_ds], 'time'),
@@ -417,14 +493,14 @@ class ML_model(ABC):
         eco_region_dat = [data.load(scheduler='sync') for _, data in eco_region_dat]
 
         if debug:
-            eco_region_dat = eco_region_dat[:6]
+            eco_region_dat = eco_region_dat[:4]
         # if self.MACHINE == 'local':  # reduce number of eco-regions in order to maintain speed within debugging process
         #     eco_region_dat = eco_region_dat
 
         with Pool(self.CPU_COUNT) as pool:
             results = pool.map_async(self.pred_eco_region, eco_region_dat)
             try:
-                sf_list = results.get(timeout=2400)
+                sf_list = results.get()
             except TimeoutError as e:
                 print(f'Session stopped due to timeout: {e}')
 
