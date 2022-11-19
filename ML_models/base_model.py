@@ -2,24 +2,8 @@ import multiprocessing
 from multiprocessing import Pool
 
 import matplotlib.pyplot as plt
-# plt.rcParams['text.usetex'] = True
 
-#
 import matplotlib as mpl
-
-# mpl.rcParams.update(mpl.rcParamsDefault)
-# mpl.rc('font', family='sans-serif')
-# mpl.rc('font', serif='Helvetica Neue')
-# mpl.rc('text', usetex='false')
-# plt.rcParams['mathtext.fontset'] = 'custom'
-# plt.rcParams['mathtext.rm'] = 'Bitstream Vera Sans'
-# plt.rcParams['mathtext.it'] = 'Bitstream Vera Sans:italic'
-# plt.rcParams['mathtext.bf'] = 'Bitstream Vera Sans:bold'
-
-# rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
-import matplotlib as mpl
-# from matplotlib import rc
-# rc('text', usetex=True)
 
 import numpy as np
 import pandas as pd
@@ -86,7 +70,7 @@ def translate_to_PFT(ecoregion):
         return tc_name + ' - ' + PFT
 
 # Due to the way the scaling factors are determined, factors associated with a flux near 0 can get massive scaling
-# factors. See Thesis section (??) for more in depth explanation
+# factors. See Thesis section (9.2) for more in depth explanation
 def cap_outliers(dat, scalar = 4):
     mean = np.mean(dat.values.flatten())
     sd = np.std(dat.values.flatten())
@@ -171,6 +155,16 @@ def eval_model(sf_data, test_or_train, target_var):
 
 
 def plot_fit(target_dat, pred_dat, pred_ci, test_or_train, show_pred=True, show_test=True):
+    '''
+    Function used to plot the fit of the model to some set of data
+    :param target_dat: The data to which the predicted data should be compared
+    :param pred_dat: The prediction made by the model
+    :param pred_ci: The confidence interval of the predictions
+    :param test_or_train: Indicate whether the predicated data should be compared to the training data, or the test data
+    :param show_pred: Indicate whether the prediction should be shown. Default is True
+    :param show_test: Indicate whether the target data should be shown. Default is True
+    :return: None
+    '''
     # Graph
     fig, ax = plt.subplots(figsize=(9, 4))
     region = str(target_dat.eco_regions.values)
@@ -187,7 +181,6 @@ def plot_fit(target_dat, pred_dat, pred_ci, test_or_train, show_pred=True, show_
         ax.fill_between(target_dat.time.values, ci[:, 0], ci[:, 1], color='C01', alpha=0.1)
         fill = ax.fill(np.NaN, np.NaN, color='C01', alpha=0.1)
 
-    # title = test_or_train + ' data: predicted sf of eco_region ' + target_dat.eco_regions.values)
     ax.set(xlabel='Date', ylabel='Scaling factor')
     plt.ylim([-2, 5])
     plt.title(f"Performance on {test_or_train} data \n region {region}: " + r'$' + translate_to_PFT(region)+'$')
@@ -240,8 +233,8 @@ class ML_model(ABC):
 
             self.RESULTS_DIR = './results/'
 
-            # The -2 is placed in order to maintain a relatively fast PC when running the model
-            self.CPU_COUNT = int(multiprocessing.cpu_count() / 3)
+            # The /2 is placed in order to maintain a relatively fast PC when running the model. Remove at your own risk
+            self.CPU_COUNT = int(multiprocessing.cpu_count() / 2)
 
         else:
             raise NotImplementedError(f'machine "{machine}" has not been implemented')
@@ -302,6 +295,13 @@ class ML_model(ABC):
         raise NotImplementedError
 
     def create_sf_dataset(self, prediction, data, eco_region):
+        '''
+        Function used to create a dataset of the prediction both in scaling factor space and flux space of a single ecoregion.
+        :param prediction: Predicted scaling factors for every set of training data used.
+        :param data: Dataset containing the prior flux data, optimized effective scaling factors, and optimized flux
+        :param eco_region: The ecoregion to which the prediction applies
+        :return:
+        '''
 
         start_year = pd.DatetimeIndex(data.time).year.min()
         n_train_years = 2017 - start_year
@@ -377,9 +377,16 @@ class ML_model(ABC):
             [prior_flux, pred_sf, pred_flux, opt_sf, opt_flux, training_time, testing_time, surface_area, transcom])
 
     def pred_eco_region(self, eco_data):
+        '''
+        Generate the predicted scaling factors for an ecoregion.
+        :param eco_data: All the analyzed scaling factor of a single ecoregion
+        :return: Dataset with the predicted scaling facter per number of training years used.
+        '''
         region = float(eco_data.eco_regions.values)
 
         print(f'Determining sf prediction of region {region}')
+
+        # Try to load a previous safe file. If it does not exist or is corrupted, make a new prediction
         try:
             sf_ds = self.load_sf_data(region)
         except (EOFError, FileNotFoundError):
@@ -415,11 +422,13 @@ class ML_model(ABC):
                 # Generate predictions on both training set and testing set
                 train_prediction, train_ci = self.get_prediction(trained_model, train_ds, 'train')
 
+                # Show the fit to the training data
                 # if self.show_fit:
                 #     plot_fit(train_ds, train_prediction, train_ci, 'train')
 
                 test_prediction, test_ci = self.get_prediction(trained_model, test_ds, 'test')
 
+                # Show the fit to the testing data
                 if self.show_fit:
                     plot_fit(test_ds, test_prediction, test_ci, 'test', show_test=True, show_pred=True)
 
@@ -431,6 +440,12 @@ class ML_model(ABC):
         return sf_ds
 
     def analyse_sf_data(self, sf_data, per_tc_region = False):
+        '''
+        Function to determine the performance of the predicted scaling factors according to a predefined set of performance measures
+        :param sf_data: All the needed data, including the predicted scaling factors, analysed scaling factors, and prior flux space
+        :param per_tc_region: Flag to show whether the provided data is on TransCom level, or on ecoregion level.
+        :return: Dataset of the performance of the model per number of training years used.
+        '''
         if per_tc_region:
             region = float(sf_data.tc_region.values)
         else:
@@ -480,22 +495,27 @@ class ML_model(ABC):
         return results_df
 
     def run_model(self, data_file, debug=False):
+        '''
+        The core function of the model. This function reads in the data and makes returns the predictions made by the model
+        :param data_file: The datafile containing the analyzed scaling factors, prior fluxes, and exogenous variables.
+        :param debug: If set to True, the numbe rof included ecoregions in limited, substantially reduing the time needed to test the entire pipeline
+        :return: Dataset of the predictions made by the model.
+        '''
 
         # Loading all necessary data
         with xr.open_dataset(self.PRED_VAR_PATH + data_file) as ds:
             complete_ds = ds
 
-        # the models will be evaluated per eco-region. Hence, the original dataset is split into a separate dataset
-        # for each eco-region
+        # the models will be evaluated per ecoregion. Hence, the original dataset is split into a separate dataset
+        # for each ecoregion
         eco_region_dat = list(complete_ds.groupby("eco_regions"))
 
         # Preload all data to prevent loading error during multithreading process
         eco_region_dat = [data.load(scheduler='sync') for _, data in eco_region_dat]
 
-        if debug:
+        if debug:# reduce number of eco-regions in order to maintain speed within debugging process
             eco_region_dat = eco_region_dat[:4]
-        # if self.MACHINE == 'local':  # reduce number of eco-regions in order to maintain speed within debugging process
-        #     eco_region_dat = eco_region_dat
+
 
         with Pool(self.CPU_COUNT) as pool:
             results = pool.map_async(self.pred_eco_region, eco_region_dat)
@@ -503,7 +523,6 @@ class ML_model(ABC):
                 sf_list = results.get()
             except TimeoutError as e:
                 print(f'Session stopped due to timeout: {e}')
-
 
         sf_ds = xr.concat(sf_list, 'eco_regions', data_vars='minimal')
         corrected_train_time = sf_ds.training_time.isel(dict(eco_regions=1)).squeeze()

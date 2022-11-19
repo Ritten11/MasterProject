@@ -77,9 +77,6 @@ class monthly_model(ML_model):
         lower_lim = mean - std
         lower_lim = lower_lim.rename('lower limit')
 
-        ci = np.array([lower_lim.values, upper_lim.values]).T
-        # ci = xr.concat([mean-std, mean+std], pd.Index(['lower', 'upper'], name='new_dim'))
-        # ci = ci.rename('ci')
         n = grouped_data.count().astype('int32')
         n = n.rename('N')
         fitted_model = xr.merge([mean, lower_lim, upper_lim, n])
