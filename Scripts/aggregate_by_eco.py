@@ -72,7 +72,8 @@ with xr.open_dataset(regionsfile) as ds:
 with xr.open_dataset(pers_file_dir+'sf.nc') as ds:
     sf_gridded = ds.rename({'sf':'scaling_factor'})
 
-# Loadin of hte file containing the total ecosystem respiration (TER). Used as weights for the aggreation proces of going from grid space to statevector space
+# Loading of the file containing the total ecosystem respiration (TER). Used as weights for the aggregation proces of
+# going from grid space to state vector space
 with xr.open_dataset(resp_file) as ds:
     ds = ds.swap_dims({"Longitude": "lon", "Latitude":"lat"})
     ds = ds.reset_coords(names=['Longitude' ,'Latitude'], drop=True)
