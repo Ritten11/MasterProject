@@ -120,14 +120,13 @@ All that is required for making a new model is:
 - Define how previously saved model can be loaded
 
 Once these functions have been implemented, the models can be executed and evaluated using the function `ML_model.run_model()` and `ML_model.test_model()`. 
-See `run_ML_models.ipynb` for examples on how to run each of the 4 implemented models.
+See `./run_ML_models.ipynb` for examples on how to run each of the 4 implemented models.
 
 ## Figure generation
 After having defined the data and trained the models, it is time to visualise the performance of the models.
-All figures used for the first part of the thesis are gathered in the `figures_used_in_thesis_p1.ipynb`. 
+All figures used for the first part of the thesis are gathered in the `./figures_used_in_thesis_p1.ipynb`. 
 Unfortunately, these figures have all been generated on Snellius and translating the directories to those of the local machine has proven to be cumbersome. This is therefore still a work in progress.
 
-The figures used for part 2 are spread out across various files:
-The figures from 
+The figures of Part II are gathered in the `./figures_used_in_thesis_p2.ipynb` notebook, and links to the figures in the appendix are provided in the `./figures_used_in_thesis_app.ipynb` notebook
 
 
