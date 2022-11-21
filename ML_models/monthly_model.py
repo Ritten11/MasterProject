@@ -80,6 +80,7 @@ class monthly_model(ML_model):
         n = grouped_data.count().astype('int32')
         n = n.rename('N')
         fitted_model = xr.merge([mean, lower_lim, upper_lim, n])
+        fitted_model.assign_coords(month=fitted_model.month.values.astype('int32'))
         fitted_model.attrs['confidence interval'] = 'The upper and lower limit have been set to be 1 std from the mean'
         # fitted_model.attrs['N'] = str(N)
 
@@ -105,3 +106,13 @@ class monthly_model(ML_model):
         pred_ci = np.stack([predictions['lower limit'].values, predictions['upper limit'].values]).T
 
         return pred_dat, pred_ci
+
+    # @override The monthly mean models are stored as NetCDF4 file instead of a pickle
+    def get_model_path(self, start_year, eco_region, save_type='nc'):
+        """
+        Function for automatically generating the location of a saved model
+        :param start_year: The year at which the training data started
+        :param eco_region: The eco_region to which the model applies
+        :return: The correct file path of the model.
+        """
+        return super(monthly_model, self).get_model_path(start_year, eco_region, save_type)

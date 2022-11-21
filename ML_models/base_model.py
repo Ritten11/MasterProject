@@ -1,5 +1,5 @@
 import multiprocessing
-from multiprocessing import Pool
+from multiprocessing.dummy import Pool
 
 import matplotlib.pyplot as plt
 
@@ -225,7 +225,7 @@ class ML_model(ABC):
             self.CPU_COUNT = 32
 
         elif machine == 'local':
-            self.PRED_VAR_PATH = './'  # For retrieving the set of aggregated scaling vectors
+            self.PRED_VAR_PATH = './data_files/'  # For retrieving the set of aggregated scaling vectors
 
             self.SAVE_DIR = self.pers_file_dir = './trained_models/'  # used for storing the trained model
 
@@ -523,7 +523,6 @@ class ML_model(ABC):
                 sf_list = results.get()
             except TimeoutError as e:
                 print(f'Session stopped due to timeout: {e}')
-
         sf_ds = xr.concat(sf_list, 'eco_regions', data_vars='minimal')
         corrected_train_time = sf_ds.training_time.isel(dict(eco_regions=1)).squeeze()
         corrected_test_time = sf_ds.testing_time.isel(dict(eco_regions=1)).squeeze()

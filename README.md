@@ -9,8 +9,8 @@ Auke M. van der Woude (, MSc.) (University of Wageningen, The Netherlands) </div
 This repository contains all code used for conducting the research done in my [Master thesis](https://fse.studenttheses.ub.rug.nl/id/eprint/28972). This code is roughly devided into 5 parts:
 - Data retrieval
 - Data pre-processing
-- Model framework
 - Hyperparameter fitting
+- Model framework
 - Figure generation
 
 Note that some parts of the project have been done on [<i>Snellius</i>](https://www.surf.nl/en/dutch-national-supercomputer-snellius), the Dutch supercomputer, while others were done on a local machine. 
@@ -102,9 +102,14 @@ Now that all data in centralized into a single, relatively small, dataset, it ca
 Therefore, the final step of the data preprocessing has been done on a local machine. 
 This is done in the `Scripts/to_anomaly.ipynb` notebook, and produces a final dataset `vars_per_eco_monthly_anomaly.nc`
 
+## Hyperparameter fitting
+Now that the data is ready, it is time investigate how to implement the ML-models. 
+As mentioned in the thesis, the chosen ML-models are the seasonal auto-regressive integrated moving average (SARIMA) and seasonal auto-regressive integrated moving average with exogenous variables(SARIMAX) models. 
+How these models have been fitted to the data is explained in the `SARIMA.ipynb` and `SARIMAX.ipynb` notebooks.
+
 ## Model framework _(snellius/local)_
 
-Now that the data has been processed, the actual modeling part can begin. 
+After having determined the set of hyperparameters for the SARIMA and SARIMAX models, it is time to include them in the broader modeling framework. 
 To simplify adding new models, the abstract object `ML_model` implemented in `ML_models/base_model.py` contains all the functions which function exactly the same across all models.
 All that is required for making a new model is:
 - Giving the model a name by defining `MODEL_NAME`.
@@ -114,6 +119,15 @@ All that is required for making a new model is:
 - Define how the model should be saved
 - Define how previously saved model can be loaded
 
-Once these functions have been implemented, the models models can be excecuted and evaluated using the function `ML_model.run_model()` and `ML_model.test_model()`. See 
+Once these functions have been implemented, the models can be executed and evaluated using the function `ML_model.run_model()` and `ML_model.test_model()`. 
+See `run_ML_models.ipynb` for examples on how to run each of the 4 implemented models.
+
+## Figure generation
+After having defined the data and trained the models, it is time to visualise the performance of the models.
+All figures used for the first part of the thesis are gathered in the `figures_used_in_thesis_p1.ipynb`. 
+Unfortunately, these figures have all been generated on Snellius and translating the directories to those of the local machine has proven to be cumbersome. This is therefore still a work in progress.
+
+The figures used for part 2 are spread out across various files:
+The figures from 
 
 
