@@ -129,7 +129,7 @@ dmypy.json
 .pyre/
 
 # personal additions
-data_files/
+data_files/weekly_flux.nc
 Stuff from Snellius/
 trained_models_download/
 Messy spare code/
