@@ -130,3 +130,6 @@ dmypy.json
 
 # personal additions
 data_files/
+Stuff from snellius/
+trained_models_download/
+Messy spare code/
