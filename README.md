@@ -14,8 +14,9 @@ This repository contains all code used for conducting the research done in my [M
 - Figure generation
 
 Note that some parts of the project have been done on [<i>Snellius</i>](https://www.surf.nl/en/dutch-national-supercomputer-snellius), the Dutch supercomputer, while others were done on a local machine. 
-Both of these machines are Linux based, so both directory structures use the UNIX naming conventions. Nonetheless, this slightly complicates the running instructions, as 2 seperate directory structures and used. 
-Which machine has been used for this step of the project is indicated by a _(snellius)_,  _(local)_, or _(snellius/local)_ flag behind the header of each section 
+Both of these machines are Linux based, so both directory structures use the UNIX naming conventions. 
+Nonetheless, this slightly complicates the running instructions, as 2 seperate directory structures and used. 
+Which machine has been used for this step of the project is indicated by a _(snellius)_,  _(local)_, or _(snellius/local)_ flag behind the header of each section.  
 Furthermore, some used files are too large to upload to GitHub, or their terms of use do not allow for sharing. 
 These issues will be stated clearly whenever they occur.
 
@@ -80,14 +81,14 @@ As a result, the datafiles used in the beginning of the thesis are shaped using 
 To try and create some order in the chaos that has been created, this preprocessing step has been split into two sections: The state vector aggregation and the ecoregion aggregation
 
 ### State vector aggregation _(snellius)_
-The datafile aggregated to state vector leven were only used in Part I of the thesis. 
-This part focussed on the current implementation of the `smoother` model and the proposed improvement of the `monthly mean` model.
+The datafiles aggregated to state vector level were only used in Part I of the thesis. 
+This part focussed on the current implementation of the `smoothed` model and the proposed improvement of the `monthly mean` model.
 Both of these models are rather simple, and thus they have been included in the data preprocessing step. 
 
 The first step is transforming the scaling factors, which have been provided on a 360x180 gridspace, to their state vector representation of 9835 elements. 
 This process is handled by the `Scripts/sv_extraction_script.py`, which produces the `weekly_sv.nc` file. 
 
-Once the analyzed statevector has been extracted, the `smoother` and `monthly` model are generated in the `Scripts/smoothed_monthly_sv.ipynb` notebooks and are saved as `smoothed_sv` and `monthly_sv` respectively.
+Once the analyzed statevector has been extracted, the `smoothed` and `monthly` model are generated in the `Scripts/smoothed_monthly_sv.ipynb` notebooks and are saved as `smoothed_sv` and `monthly_sv` respectively.
 
 These are the models used for Part I of the thesis.
 The final part of the thesis focussed on the effective scaling factor per ecoregion.
