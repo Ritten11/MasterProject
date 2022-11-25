@@ -6,7 +6,7 @@
 External Supervisors: Prof. Dr. Wouter Peters (University of Wageningen, The Netherlands) <br>
 Auke M. van der Woude (, MSc.) (University of Wageningen, The Netherlands) </div>
 
-This repository contains all code used for conducting the research done in my [Master's thesis](https://fse.studenttheses.ub.rug.nl/id/eprint/28972). This code is roughly divided into 5 parts:
+This repository contains all code used for conducting the research done in my [Master's thesis](https://fse.studenttheses.ub.rug.nl/id/eprint/28997). This code is roughly divided into 5 parts:
 - Data retrieval
 - Data pre-processing
 - Hyperparameter fitting
@@ -37,7 +37,7 @@ First, make sure that the original files are provided in daily NetCDF4 files per
 
 - `[base_dir]`: the directory containing all the raw environmental data. 
 - `[year]`: the year in which the data starts. 
-- `[var_name]`: the name of the variable. For a list of the used variables, see Table D.5 of [the accompanying thesis](https://fse.studenttheses.ub.rug.nl/id/eprint/28972).
+- `[var_name]`: the name of the variable. For a list of the used variables, see Table D.5 of [the accompanying thesis](https://fse.studenttheses.ub.rug.nl/id/eprint/28997).
 - `[month]`: The month in which the data starts.
 - `[day]`: The day in which the data starts.
 - `[hour]`: The hour in which the data starts. As we are using daily data files, this value is always `00`.
